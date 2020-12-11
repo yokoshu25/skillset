@@ -1,0 +1,53 @@
+---
+title: "Amazon Stock Prediction"
+author: "Shusei Yokoi"
+output: html_document
+---
+
+```{r, include=F}
+library(dplyr)
+library(ggplot2)
+library(urca)
+library(forecast)
+library(Metrics)
+library(KFAS)
+library(svMisc)
+
+setwd('/Users/shuseiyokoi/Desktop/multilevel')
+stock = read.csv('amzn_stock.csv')
+df = stock[1:252,]
+```
+
+```{r}
+ts_df = ts(log(df$Close), frequency = 7)
+train = ts_df[c(1:200)]
+test = ts_df[c(201:nrow(df))]
+```
+```{r}
+arima_model_1 = auto.arima(
+    y = train,
+    ic = 'aic',
+    max.order = 7,
+    stepwise = F,
+    approximation = F
+  )
+  forecast_arima = forecast(arima_model_1, h = length(test))
+
+  pred = 2.718^forecast_arima[["mean"]]
+  
+  test_antilog = 2.718^test
+  mape = mape(pred, test_antilog)
+  
+  rmse = forecast::accuracy(forecast_arima, test)['Test set','RMSE']
+```
+
+```{r}
+checkresiduals(arima_model_1)
+```
+```{r}
+forecast_arima = forecast(arima_model_1, h = length(test))
+autoplot(forecast_arima)
+```
+    
+RMSE: `r rmse`  
+MAPE: `r mape`
