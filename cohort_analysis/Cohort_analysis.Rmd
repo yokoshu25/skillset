@@ -1,0 +1,198 @@
+---
+title: "Cohort Population Analysis with R"
+subtitle: "Summer One Week Challenge 1"
+author: "Shusei Yokoi"
+date: "8/14/2020"
+output:
+  html_document:
+    code_folding: hide
+
+---
+# Cohort Analysis 
+**"Cohort analysis is a subset of behavioral analytics that takes the data from a given data set (e.g. an EMRS, an e-commerce platform, web application, or online game) and rather than looking at all users as one unit, it breaks them into related groups for analysis. These related groups, or cohorts, usually share common characteristics or experiences within a defined time-span." - wikipedia**
+
+### Objectives 
+Objective here is to perform cohort analysis on population in Japan using R, and to estimate future population based on the analysis. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd('/Users/yokoishusei/Desktop/R/Summer_R/Week1')
+library(datasets)
+library(readxl)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+source(gzcon(url('https://github.com/systematicinvestor/SIT/raw/master/sit.gz', 'rb')))
+#setInternet2(TRUE)
+library(tidyverse)
+library(DT)
+```
+
+### Getting and Cleansing Data
+
+  Data is accrued from e-Stat <https://www.e-stat.go.jp/en> the official data provider for Japanese Government. Here, two datasets were accrued one with periodical population census thru 1920 to 2005, and one with population census of 2010. While I was cleaning the dataset, I decided to create a model based on population change between 1990 to 2005 and predict population change in 2010. The census was done every 5 years, so my model must predict 5 years prior to the latest census. To test the accuracy of the model, I will make the 2015 census as a test model; the 2020 census has not been done yet.  
+  I start off with basic hardcode data cleansing using *dplyr* piping. It is always pain in the neck to create clean dataset. One key here is to clearly state your ideal dataset before jump into the coding right away. Have a clear imagine what rows and columns you will need for prior analysis. Otherwise, you will spend a week just data clearing. Note that data clearing is one of the hardest part of the data analysis, so spend decent time to brainstorm about the image of dataset.   
+	Here, I got a dataset with population by age in different time set. Since I only need population between 1990 and 2005, I concatenate *population_1990to2005* data frame. 
+
+
+```{r raw_data,message=FALSE}
+population = read_excel('05016.xls')
+population = population %>% 
+  select(3,5,seq(12,67,7)) %>% 
+  slice(-c(1,2,4:10, 133:144)) 
+
+population_each = population %>%
+  slice(-c(seq(3,117,6))) %>% 
+  slice(-c(1:2)) %>% 
+  slice(-101) %>% 
+  select(-...3)
+colnames(population_each) = c('age',population[1,c(3:10)])
+colnames(population_each) = c('age','year_1920','year_1960','year_1970','year_1980','year_1990','year_1995','year_2000','year_2005')
+population_1990to2005 = population_each %>% 
+  select('age','year_1990','year_1995','year_2000','year_2005')
+
+population_1990to2005 = population_1990to2005 %>% 
+  mutate(year_1990 = as.numeric(population_1990to2005$year_1990)) %>% 
+  mutate(year_1995 = as.numeric(population_1990to2005$year_1995)) %>% 
+  mutate(year_2000 = as.numeric(population_1990to2005$year_2000)) %>% 
+  mutate(year_2005 = as.numeric(population_1990to2005$year_2005))
+
+
+DT::datatable(head(population_each,100),
+              rownames = FALSE,
+              options = list(
+                pageLength = 10,
+                pageLength = c(10,20,30,40,50)))
+
+```
+
+### Creating Cohort Model
+
+After the data cleaning, I am ready to create a cohort model. Since the census was done every 5 years, 5 years old children in 1990 represent 10 years old children in the next census. I will create a cohort group of each age and move each column by 5, 10, 15 rows because I wan to population change. For example, I would like to know how many babies who were 0 years old in 1990 survived in 1995; by this time babies were 5 years old. the *lead* function did a good job of helping me shipping the dataset.   
+The plot below showes taile of the cohort dataset. Cohort 84; 15792 of people who were 84 years old at 1990 are still alive at 2005; they are 99 (84+15) years old in 2005!.  
+
+*Note: people who are over 100 years old was not included in this analysis*
+ 
+
+```{r cohort_1990to2005, message=FALSE}
+cohort_1990to2005 = population_1990to2005 %>% 
+  mutate(year_1995 = as.numeric(lead(population_each$year_1995,5)))%>% 
+  mutate(year_2000 = as.numeric(lead(population_each$year_2000,10)))%>% 
+  mutate(year_2005 = as.numeric(lead(population_each$year_2005,15)))%>%
+  rename( 'age_at_1990' = 'age')
+
+
+knitr::kable(tail(cohort_1990to2005,16))
+```
+
+### Surviving Rate
+
+Next, I would like to know 5-year-surviving rate for each ages. Thanks to <https://stuifbergen.com/2018/03/cohort-analysis-with-snowplow-and-r/> for giving me clean and easy guideline to manage that. After some editing, I got *cohort_1990to2005_pct* that represent 5-year-surviving rate for each ages. 
+
+```{r cohort_1990to2005_pct, }
+cohort_1990to2005_pct = data.frame(
+  cohort = cohort_1990to2005$'age_at_1990', 
+  pop_1990 = cohort_1990to2005$year_1990, # pop at 1990
+  round(cohort_1990to2005[,3:ncol(cohort_1990to2005)] / cohort_1990to2005[["year_1990"]],3)*100 #  divide eahc pop by pop_1990 
+)
+DT::datatable(head(cohort_1990to2005_pct,100),
+              rownames = FALSE,
+              options = list(
+                pageLength = 8
+                ))
+
+```
+*Note: It is weird to have 100+% of surviving rate. I assume infant death rate is very low and some immigrants are causing 100+% of surviving rate.*
+
+
+### Visualization 
+Now it’s time to visualize it for better understanding. Basically, what I have done here is concatenate dataset that I am interested in, and make a copy of data frame as matrix. I would like to see full size of the cohort table, but since I have 100 rows, it will get messy when its plotted.   
+Here I choose cohort 64 to 94.  
+```{r}
+temp = as.matrix(cohort_1990to2005_pct[65:95,])
+rownames(temp) = as.character(paste(temp[,1],'_',temp[,2]))
+temp = temp[,3:ncol(temp)]
+colnames(temp) = paste( seq(1995,2005,5),'year', seq(5,15,5))
+
+
+plot.table(temp,smain = 'Cohort _ pop1990', highlight = TRUE, colorbar = TRUE)
+
+
+
+```
+
+### Estimation 
+
+From the surviving rate, I am ready to estimate population change in 2010.   
+First, get survival rate thru 2000 to 2005   
+Second, multiple that by population of 2005  
+Third, Cbind to the existing cohort table and See what you get!   
+
+
+```{r estimate, }
+survival_pct_2000to2005 = cohort_1990to2005[,5]/cohort_1990to2005[,4]
+colnames(survival_pct_2000to2005) = 'survival_rate'
+
+pop2005 = cohort_1990to2005 %>% 
+  select(year_2005) %>% 
+  transmute(year_15 = as.numeric(cohort_1990to2005$year_2005))
+estpop_2010 = data.frame(round(survival_pct_2000to2005 * pop2005))
+
+colnames(estpop_2010) = c('Est_year_2010')
+final_cohort = cbind(cohort_1990to2005,estpop_2010)
+DT::datatable(head(final_cohort,100),
+              rownames = FALSE,
+              options = list(
+                pageLength = 10
+                ))
+
+```
+
+
+# Test the Model 
+
+Hmm.. How did I do?   
+I don’t know!   
+So let’s test it with actual population of 2010!  
+
+```{r test }
+actual_pop2010 = tibble(c(1045975,1045417,1074194,1069540,1061622,1058489,1098856,1117316,1147733,1163267,1175275,1176598,1195772,1190404,1182986,1218766,1226037,1202514,1215892,1200148,1219150,1249329,1288282,1321513,1348159,1404312,1449555,1469956,1475731,1494147,1561305,1600983,1669936,1712263,1797010,1880293,1981982,2017073,1978648,1928353,1874292,1846761,1807649,1803149,1410014,1744172,1632518,1594519,1542921,1518986,1532059,1559648,1519884,1478697,1554211,1608361,1611287,1713738,1809889,1920459,2066423,2261917,2244319,2132584,1332006,1426865,1732916,1674435,1714817,1661140,1500984,1298743,1376960,1400129,1386486,1308845,1217357,1197125,1143547,1074139,990275,932127,868554,801946,743362,648870,547394,472872,411987,351465,316840,219756,192863,160027,132221,97626,77372,55845,39826,26087))
+actual_pop2010 = lead(actual_pop2010, 19) # shift dataset as you needed
+# Here, I need 19 years old as cohort 0. Since 0 years old in 1990 is 19 years old in 2010. 
+
+# Get residuals 
+
+diff = actual_pop2010 - final_cohort$Est_year_2010 
+diff_pct = diff/actual_pop2010
+result = cbind(actual_pop2010, final_cohort$Est_year_2010, diff, abs(diff_pct)*100)
+colnames(result) = c('actual','estimate','diff','diff_pct(%)')
+
+
+DT::datatable(head(result,100),
+              rownames = FALSE,
+              options = list(
+                pageLength = 10,
+                pageLength = c(10,20,30,40,50)))
+```
+
+
+To sum up, 
+distribution of the percentage error is below.  
+Most of error stays in less than 10%, but some estimate for older generation causing bigger error. 
+```{r , message=F, warning=F}
+ggplot(result, aes(x=`diff_pct(%)`))+
+   geom_density(alpha=.5, fill='red') + 
+  xlab('%') + 
+  labs(title = 'Distribution of Error (%)')
+  
+```
+**Error summary **
+```{r sum up}
+summary(result$diff_pct)
+```
+So I got average of 6% error from actual observation. Max is 37.2%. 
+As I can see it from the dataset, the older the people get, the harder the estimate to be accurate. This may because the time span is 5 years which is pretty long for an accurate estimate. In fact, the estimate for the younger population is very accurate. 
+
+
+
+
