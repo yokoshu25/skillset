@@ -1,0 +1,115 @@
+---
+title: "Basketball Foul Calls"
+author: "Shusei Yokoi"
+output:
+  html_document:
+    df_print: paged
+---
+
+An article by K. J. Anderson and Pierce (2009) describes empirical evidence that officials in NCAA men’s college basketball tend to “even out” foul calls over the course of a game, based on data collected in 2004-2005. Using logistic regression to model the effect of foul differential on the probability that the next foul called would be on the home team (controlling for score differential, conference, and whether or not the home team had the lead), they found that “the probability of the next foul being called on the visiting team can reach as high as 0.70.” More recently, Moskowitz and Wertheim (2011), in their book Scorecasting, argue that the number one reason for the home field advantage in sports is referee bias. Specifically, in basketball, they demonstrate that calls over which referees have greater control—offensive fouls, loose ball fouls, ambiguous turnovers such as palming and traveling—were more likely to benefit the home team than more clear-cut calls, especially in crucial situations. In this exercise, you will examine data collected by Noecker and Roback from the 2009-2010 basketball season for the first half of 340 games in the Big Ten, ACC, and Big East conferences. The basketball0910.txt data file has a row for each of 4,972 fouls. The primary response variable is foul.home, 1 if the foul was called on the home team. The hypothesis is that if more fouls have been called on the home team than the visiting team, the probability is smaller that the next foul is on the home team.
+
+
+```{r setup, include=F}
+library(ggplot2)
+library(dplyr)
+library(fastDummies)
+library(readxl)
+library(knitr)
+library(stringr)
+library(lme4)
+```
+
+
+```{r}
+bball = read.delim("http://rossmanchance.com/stat414/data/basketball0910.txt", "\t", header=TRUE)
+```
+ 
+
+**Fitting a “naïve” Logistic Regression Model**  
+```{r}
+summary(glm(formula = foul.home ~ foul.diff, family = binomial, data = bball))
+```
+As one difference in foul increase for visitor (diff = 1), 12.23% (1-exp(-0.13047)) decrease the chance for next foul would be call for home. 
+ 
+
+**Add Random Slopes**  
+```{r}
+summary(glmer(foul.home ~ foul.diff + (foul.diff | game), family = binomial, data = bball) )
+```
+   
+ Level1: $log(\pi_{ij}/(1-\pi_{ij})) = \beta_{0j} +\beta_{0j} * (foul.diff)$  
+ Level2: 
+ $\beta_{0j} = -0.15684 + u_{0j}$  
+ $\beta_{0j} = -0.28533 + u_{1j}$  
+ $u_{0j}~N(0, 0.294141 )$  
+ $u_{1j}~N(0, 0.001235)$  
+ $cor(\sigma^2_{u0}, \sigma^2_{u1}) =$ `r 0.001235 + 0.001235`  
+model1: As one difference in foul increase for visitor (diff = 1), 12.23% (1-exp(-0.13047)) decrease the chance for next foul would be call for home.  
+model2: As one difference in foul increase for visitor (diff = 1), 24.82% (1-exp(-0.28533)) decrease the chance for next foul would be call for home.   
+
+
+**Consider both game and team as Level 2 units with random effects**   
+```{r}
+summary(model3 <- glmer(foul.home ~ foul.diff + (1 | game) + (1 | hometeam) + (1 | visitor), family = binomial, data = bball) )
+```
+   
+Interpret the five estimated parameters.  
+**Fixed**:   
+Intercept: Predicted percentage of foul call for home team when there is not different number of foul calls is 45.3%.  
+slope(foul.diff): As one difference in foul increase for visitor (diff = 1), 23.2% (1-exp(-0.26385)) decrease the chance for next foul would be call for home.   
+**Random**:   
+Intercept(game): Average probability variance between games when score diff = 0 is 0.17164  
+Intercept(hometeam): Average probability variance between hometeams when score diff = 0 is 0.06809  
+Intercept(visitor): Average probability variance between visitors when score diff = 0 is 0.02323  
+
+
+**Variation**  
+game to game: 0.17164 / (0.17164+3.29) = `r 0.17164 / (0.17164+3.29)`  
+team to team:  0.06809 / (0.17164+3.29) = `r 0.06809 / (0.17164+3.29)`   
+vis team to vis team:  0.02323 / (0.17164+3.29) = `r 0.02323 / (0.17164+3.29)`  
+ 
+
+```{r}
+u0 <- as.data.frame(ranef(model3, condVar = TRUE) )
+
+ggplot(u0[u0$grpvar=="hometeam",], aes(y = condval, x = grp)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = condval - 1.96*condsd,
+                    max = condval + 1.96*condsd), width = 0) +
+  labs(title = "Home Team Intercepts",  x = "Team", y = "Estimate and 95% CI") +
+  theme(axis.text.x = element_text(angle = 90)) +  theme_bw()
+```
+```{r}
+ranef(model3)$hometeam
+```
+
+Intercept: Predicted percentage of foul call for home team when there is not different number of foul calls for SETON is `r exp(0.423886525)/(1+exp(0.423886525))*100`% (exp(0.423886525)/(1+exp(0.423886525))).   
+Intercept: Predicted percentage of foul call for home team when there is not different number of foul calls for PUR is `r exp(-0.367566879)/(1+exp(-0.367566879))*100`% (exp(-0.367566879)/(1+exp(-0.367566879))).   
+
+
+**ANOVA Test**
+```{r}
+model4=glmer(foul.home ~ foul.diff + (1 | game) , family = binomial, data = bball)
+
+anova(model3, model4)
+```
+By looking at p-value of Chisq, AIC, and logLik, the model4 is significantly better than the model3  
+ 
+
+Fitting a model that accounts for score differential, whether the home team has the lead, time left in the first half, type of foul, the interaction between foul differential and type of foul, the interaction between foul differential and time.  
+```{r}
+summary(model5 <- glmer(foul.home ~ foul.diff + score.diff + lead.home +time + foul.type + foul.diff:foul.type +  foul.diff:time + lead.home:time + (1 | game) + (1 | hometeam) + (1 | visitor),  family = binomial,     data = bball))
+```
+```{r}
+anova(model5)
+```
+
+```{r}
+exp(fixef(model5))
+```
+foul.diff: Has negative effect on the increase of the home team foul call. (More foul diff cause less foul call probability)  
+score.diff: Has positive effect on the increase of the home team foul call (More foul diff cause more foul call probability)  
+foul.diff:time: As the time passes (increases), the amount decrease of probability of home team foul call based on foul diff gets bigger.         
+lead.home:time: As the time passes, the amount increase of probability of home team foul call based on leads onn home team gets bigger.    
+
+ 

@@ -1,0 +1,118 @@
+---
+title: "Teenage Alcoholism (Multilevel Linear Model)"
+author: "Shusei Yokoi"
+output:
+  html_document:
+    df_print: paged
+---
+
+Curran, Stice, and Chassin (Journal of Consulting and Clinical Psychology, 1997) collected data on 82 adolescents at three time points starting at age 14 to assess factors that affect teen drinking behavior. Key variables in the data set are:
+
+- id = numerical identifier for subject  
+- age = 14, 15, or 16  
+- coa = 1 if the teen is a child of an alcoholic parent; 0 otherwise  
+- male = 1 if male; 0 if female  
+- peer = a measure of peer alcohol use, taken when each subject was 14. This is the square root of the sum of two 6-point items about the proportion of friends who drink occasionally or regularly.  
+- alcuse = the primary response. Four items—(a) drank beer or wine, (b) drank hard liquor, (c) 5 or more drinks in a row, and (d) got drunk—were each scored on an 8-point scale, from 0=“not at all” to 7=“every day.” Then alcuse is the square root of the sum of these four items.   
+
+
+```{r setup}
+library(ggplot2)
+library(lme4)
+library(nlme)
+library(tidyverse)
+library(effects)
+library(readr)
+```
+
+Primary research questions included:  
+do trajectories of alcohol use differ by parental alcoholism?  
+do trajectories of alcohol use differ by peer alcohol use?  
+
+Level One and Level Two predictors.  
+Level One: A single observation at the occasion  
+Level Two: Individual Student   
+
+**spaghetti plot** showing alcohol use over time for all 82 subjects.   
+```{r ,message=FALSE, warning=F}
+alcohol = read.delim("https://www.rossmanchance.com/stat414/data/alcohol.txt", "\t", header=TRUE)
+
+ggplot(data = alcohol, aes(y = alcuse, x = age, group=id)) +
+     geom_line() +
+     geom_smooth(aes(group=1),color="green",size=1, se=F, method="loess") +
+     theme_bw()
+```
+   
+    
+There is some variability among the different time period. Meaning the trend is non-linear. However the smooth line/the mean of the data may have a linear relationship.  
+
+Graph by whether or not the teen had alcoholic parents.  
+```{r, message=F, warning=F}
+ggplot(data = alcohol, aes(y = alcuse, x = age, group=id)) +
+  geom_line() +
+  facet_wrap(.~coa) +
+  geom_smooth(aes(group=1),color="green",size=1, se=F, method="loess") +
+  theme_bw()
+```
+
+   
+The trend is still non-linear. Between the two grap, the average aluse is slightly higher for the teen with alcholic parents.   
+
+
+**Null model**   
+```{r}
+model0 = lme(alcuse ~ age, random = ~1|id, data = alcohol )
+summary(model0)
+```  
+Total variance = 0.7723689^2 + 0.7010646^2 = `r 0.7723689^2 + 0.7010646^2`  
+ICC = 0.7723689^2 /`r 0.7723689^2 + 0.7010646^2` = `r (0.7723689^2) / (0.7723689^2 + 0.7010646^2)`  
+
+Run an unconditional growth model with age as the time variable at Level One.  
+```{r}
+model1 = lme(alcuse ~ age, random = ~ age| id, data = alcohol)
+summary(model1)
+```
+The average alcuse for the average students at age 0 is -3.1378163   
+
+
+**Centering**   
+(Create age14 = age-14)    
+```{r}
+alcohol = alcohol %>% 
+  mutate(age14 = age -14)
+```
+```{r}
+model1 = lmer(alcuse ~ age14 +(age14 | id), data = alcohol)
+summary(model1)
+```
+Total variance = 0.6355^2 + 0.1552^2 + 0.3373^2 = `r 0.6355^2 + 0.1552^2 + 0.3373^2`  
+R^2 (level1)  = 0.3373^2/(0.6355^2 + 0.1552^2 + 0.3373^2) = `r 0.3373^2/(0.6355^2 + 0.1552^2 + 0.3373^2)`  
+Only 21% of variance is explained at level 1 variable.  
+
+Plot model1 vs. (the original) peer alcohol use variable.   
+```{r}
+peermeans = aggregate(alcohol[, 6], by=list(alcohol$id), mean)
+intercepts = ranef(model1)$id[,1]
+plot(intercepts ~ peermeans[,2])
+abline(lm(intercepts ~ peermeans[,2]))
+```
+
+   
+As the peer alchol use increase, there is higher probability that the observation is already using the alcohol as the age of 14.  
+
+
+Add the effects of having an alcoholic parent and peer alcohol use in both Level Two equations to model1.  
+Best model is model_5.   
+```{r}
+model_5 = lmer(alcuse ~ age14 + coa + peer + (age14 | id), data = alcohol)
+summary(model_5)
+```
+**Interpretation**   
+ At the age 14, children with no alcoholic parent and no peer drinker, the average alcohol use is -0.2264. (Not statistically significant due to small t-value)  
+ As one year passes, the average usage of the alcohol will increase by 0.27065 after adjusting other variables; fixed parent drinking behavior.   
+If the parent is alcoholic at age 14, the average children will have 0.5712 more alcohol use after adjusting the variable peer drinking.   
+If the peer is drinking at age 14, the average children will have 0.60922 more alcohol use after adjusting the variable parent drinking behavior.    
+Total variation: 0.2621^2+0.1552^2+0.3373^2 = `r 0.2621^2+0.1552^2+0.3373^2`  
+Level 2 variation = .2621^2+0.1552^2 = `r .2621^2+0.1552^2`  
+ICC = .2621^2+0.1552^2/(0.2621^2+0.1552^2+0.3373^2) = `r .2621^2+0.1552^2/(0.2621^2+0.1552^2+0.3373^2)`  
+18.5% of the variation is explained in the level 2 vairable.  
