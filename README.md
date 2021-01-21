@@ -1,5 +1,9 @@
 # products
 
+IG_like-bot:　　
+Instapyモジュールを使い、ライクbotを作りました、指定した時間にタグ検索しライク、深夜にその日ライクしたlogを.csvにまとめてくれます。
+
+
 NBA_winner_estimate_AI:  
 Webから、過去５年のNBA全試合のデータを抽出し、ロジステック回帰を用いて、勝敗予測AIを作成しました。チームごとに関数などを調整すれば、AUCスコア75（SF Warriorsの場合）ほどで予測が可能です。
 
