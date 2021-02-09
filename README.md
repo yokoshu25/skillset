@@ -1,6 +1,6 @@
 # products
 
-IG_like-bot:　　
+IG_like-bot:  
 Instapyモジュールを使い、ライクbotを作りました、指定した時間にタグ検索しライク、深夜にその日ライクしたlogを.csvにまとめてくれます。
 
 
