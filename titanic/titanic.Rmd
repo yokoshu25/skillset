@@ -1,0 +1,250 @@
+---
+title: "Titanic"
+output: html_notebook
+---
+# The Challenge
+*The sinking of the Titanic is one of the most infamous shipwrecks in history.  *
+
+*On April 15, 1912, during her maiden voyage, the widely considered “unsinkable” RMS Titanic sank after colliding with an iceberg. Unfortunately, there weren’t enough lifeboats for everyone onboard, resulting in the death of 1502 out of 2224 passengers and crew.  *
+
+*While there was some element of luck involved in surviving, it seems some groups of people were more likely to survive than others.  *
+
+*In this challenge, we ask you to build a predictive model that answers the question: “what sorts of people were more likely to survive?” using passenger data (ie name, age, gender, socio-economic class, etc).  - kaggle*  
+
+I'm going to use the logistic regression since the data can be submitted as if each passenger would be survive the accidents (survived = 1, dead = 0).  
+
+```{r setup}
+library(pROC)
+train = read.csv('train.csv', header = T)
+rows = sample(1:nrow(train), nrow(train)*0.3)
+df = train[rows,]
+test = train[-rows,]
+# To match logit function values, run
+df = train 
+```
+
+**To match logit function values, run df = train **
+
+# Variable Analytics 
+
+## Ticket Class (Pclass)
+Noted as aproxy socio-economic status (1 = high, 3 = low) 
+```{r pclass_1}
+barplot(table(df$Pclass))
+```
+I don't know how much price difference between 1,2, and 3, so test them if I can use it as quantitative as is, or I need to add some weight on the class.  
+```{r pclass_2}
+fit = glm(Survived~Pclass, family = binomial, data = df)
+summary(fit)
+fit2 = glm(Survived~factor(Pclass), family = binomial, data = df)
+summary(fit2)
+```
+
+
+Likelihood Ration Test(LRT)  
+```{r pclass_2_anova}
+LRT = summary(fit)$deviance - summary(fit2)$deviance
+delta = 889 - 888 
+p_val = 1 - pchisq(LRT, delta)
+p_val
+```
+
+Reject H0, No sufficient improvement for fit2, go with fit (quantitative Pclass).  
+
+$logit(π) = 1.44679 - 0.85011p $
+
+
+### Interpretation 
+By one level of ticket class increases, the odds of surviving status decreases by $e^{-0.85011}$ = `r exp(-0.85011)*100` %  
+
+## sex  
+No doubt it affects surviving status.  
+
+```{r sex}
+val = df$Sex
+barplot(table(val))
+```
+See if different gender in different ticket class have vary surviving rate. 
+```{r}
+fit_ge = glm(Survived~Pclass*Sex, family = binomial ,data = df)
+summary(fit_ge)
+```
+
+Probably, 
+
+```{r}
+fit_ge = glm(Survived~Pclass + Sex, family = binomial ,data = df)
+summary(fit_ge)
+```
+
+Just seeing at AIC, go with model with interaction (Pclass:Sex)
+$logit(π) = 6.0416   -2.0011p -6.0493s + 1.3593ps$   
+
+
+## Age 
+No doubt it affects surviving status.  
+```{r age}
+val = df$Age
+summary(val)
+barplot(table(val))
+boxplot(val)
+```
+Test interaction Age and Pclass
+
+```{r}
+fit5 = glm(Survived~Pclass*Sex+ Age, family = binomial ,data = df)
+summary(fit5)
+fit_int = glm(Survived~Pclass*Sex+ Pclass*Age, family = binomial ,data = df)
+summary(fit_int)
+```
+
+No interaction needed among Pclass and Age (Based on AIC)
+
+$logit(π) = 7.964377-2.410212p -6.115491 s -0.038445a + 1.479637 ps$   
+
+
+## # of siblings / spouses aboard the Titanic (SibSp)  
+
+```{r}
+barplot(table(df$SibSp))
+```
+```{r}
+fit6 = glm(Survived~Pclass*Sex+ Age + SibSp, family = binomial ,data = df)
+summary(fit6)
+```
+
+```{r}
+fit_sib = glm(Survived~Pclass*Sex+ Age + Pclass*SibSp, family = binomial ,data = df)
+summary(fit_sib)
+```
+
+
+```{r}
+1 - pchisq(614.22-610.72,1)
+```
+
+
+Statistically insignificant... 
+
+
+How about treat SibSp as factor 
+
+```{r}
+fit_fcsib = glm(Survived~Pclass*Sex+ Age + factor(SibSp), family = binomial ,data = df)
+summary(fit_fcsib)
+```
+Hmmmm... Nop,  
+
+
+Go with fit6  
+$logit(π) = 8.487528-2.429192p -6.162294s -0.046830a -0.354855s_2 +1.462084 ps$   
+
+
+## Ticket number (ticket)  
+
+The ticket number is unique by the ticket. 
+There are some relation between Ticket number and ticket class; if the first desit of the ticket number is 1, the passenger are likely to have 1 for ticket class. Hence, I do not incrude it in to the model  
+
+
+
+## Passenger fare (Fare)  
+
+```{r}
+summary(df$Fare)
+boxplot(df$Fare)
+```
+Very skewed data, it is better to normalize. 
+### Taking Log 
+Replace Fare == 0 as NA and take log otherwides.  
+```{r}
+df$log_Fare = ifelse(df$Fare<= 0, NA, log(df$Fare))
+summary(df$log_Fare)
+boxplot(df$log_Fare)
+```
+
+```{r}
+fit7 = glm(Survived~Pclass*Sex+ Age + SibSp + log_Fare, family = binomial ,data = df)
+summary(fit7)
+```
+Nop, did mpt work. Stick with simple model. 
+
+### Check Correlation between Fare and Ticket Class 
+
+```{r}
+cor(df$Fare, df$Pclass)
+```
+=> Moderate Association  
+As Fare increase, the Pclass decreases (Become Pclass repesent more higher class  because 1 = high and 3 = low class)    
+
+
+Avoid multicollinality => Do not include Fare 
+
+## Cabin number (Cabin)  
+Seems like Cabin number is related to Fare. The same Cabin number tends to have shared fare. But there may be different cabin number with same fare, so I can not be able to concatenate Cabin number using fare as ID.  
+```{r}
+fit7 = glm(Survived~Pclass*Sex+ Age + SibSp + Cabin, family = binomial ,data = df)
+summary(fit7)
+```
+
+
+
+CabinC22 C26 is significant by p-value, but too small sample, Do not include it in the model.  
+
+## Port of Embarkation  (Embarked)  
+C = Cherbourg, Q = Queenstown, S = Southampton
+
+
+```{r}
+barplot(table(df$Embarked))
+```
+
+```{r}
+fit8 = glm(Survived~Pclass*Sex+ Age + SibSp + Embarked, family = binomial ,data = df)
+summary(fit8)
+```
+
+Not much improvement. Go with fit6. 
+
+
+
+
+
+## Primary model
+
+Primary Model: $logit(π) = 8.487528-2.429192p -6.162294s -0.046830a -0.354855s_2 +1.462084 ps$  (fit6) 
+
+**But for in purpose of this competition, I should use the model with lowest AIC. But for real world, we should use the model that is simple but efficient.**    
+
+# Test my model 
+
+```{r}
+prediction = predict(fit6, newdata = test, type = "response")
+test_roc = pROC::roc(test$Survived ~ prediction, plot = TRUE, print.auc = TRUE)
+```
+
+
+## For submission 
+
+```{r}
+fit6 = glm(Survived~Pclass*Sex+ Age + SibSp, family = binomial ,data = train)
+test = read.csv('test.csv', header = T)
+prediction = predict(fit6, test, type = 'response')
+prediction = (prediction > 0.5)*1
+prediction[is.na(prediction )] = 0
+prediction
+pred = data.frame(PassengerId=test$PassengerId, Survived=prediction)
+write.csv(pred, 'pred_ver1.csv',row.names = FALSE)
+```
+
+
+
+# Result 
+
+## version 1 
+
+Top 21.4%  
+4895th (by score 4027th) out of 18794 with score of 0.77990 
+
+
+
+
